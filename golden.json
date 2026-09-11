@@ -1,0 +1,122 @@
+[
+  {
+    "question": "What is the total revenue across all invoices?",
+    "expect": 36467200.0,
+    "kind": "number",
+    "trap": "the TOTAL footer row would double this if it were not removed"
+  },
+  {
+    "question": "How much revenue came from Mumbai?",
+    "expect": 6604900.0,
+    "kind": "number",
+    "trap": "requires the rupee-text column to be numeric"
+  },
+  {
+    "question": "How many invoices are in this register?",
+    "expect": 180.0,
+    "kind": "number",
+    "trap": "duplicate rows inflate this by 4 if not dropped"
+  },
+  {
+    "question": "Which category produced the most revenue?",
+    "expect": "Software",
+    "kind": "text",
+    "trap": "mixed casing splits the groups if not normalised"
+  },
+  {
+    "question": "What is the average invoice amount?",
+    "expect": 202595.5556,
+    "kind": "number",
+    "trap": "footer row skews both sum and count"
+  },
+  {
+    "question": "How many invoices are still unpaid?",
+    "expect": 27.0,
+    "kind": "number",
+    "trap": "status casing is inconsistent"
+  },
+  {
+    "question": "What was the total revenue between January and March 2026 inclusive?",
+    "expect": 7182800.0,
+    "kind": "number",
+    "trap": "dates arrive as two different text formats"
+  },
+  {
+    "question": "Which sales rep brought in the most revenue?",
+    "expect": "B. Khan",
+    "kind": "text",
+    "trap": ""
+  },
+  {
+    "question": "How many distinct customers appear in the register?",
+    "expect": 24.0,
+    "kind": "number",
+    "trap": ""
+  },
+  {
+    "question": "What is the largest single invoice amount?",
+    "expect": 1000000.0,
+    "kind": "number",
+    "trap": "the TOTAL row is larger than any real invoice"
+  },
+  {
+    "question": "What percentage of total revenue came from the highest-earning city?",
+    "expect": 23.1126,
+    "kind": "number",
+    "trap": ""
+  },
+  {
+    "question": "Which calendar month had the highest revenue? Answer as YYYY-MM.",
+    "expect": "2026-05",
+    "kind": "text",
+    "trap": ""
+  },
+  {
+    "question": "How many rows are missing a quantity value?",
+    "expect": 6.0,
+    "kind": "number",
+    "trap": "blank cells, not zeros"
+  },
+  {
+    "question": "What is the median unit price?",
+    "expect": 7500.0,
+    "kind": "number",
+    "trap": ""
+  },
+  {
+    "question": "How much revenue came from Software sold in Bengaluru?",
+    "expect": 2679100.0,
+    "kind": "number",
+    "trap": "two-condition filter across a case-normalised column"
+  },
+  {
+    "question": "How many invoices are worth more than 50000?",
+    "expect": 118.0,
+    "kind": "number",
+    "trap": ""
+  },
+  {
+    "question": "What is the total quantity sold across all invoices?",
+    "expect": 3733.0,
+    "kind": "number",
+    "trap": "missing quantities must be skipped, not zeroed"
+  },
+  {
+    "question": "What is the average invoice amount for the Services category?",
+    "expect": 174237.8378,
+    "kind": "number",
+    "trap": ""
+  },
+  {
+    "question": "What is the date of the earliest invoice? Answer as YYYY-MM-DD.",
+    "expect": "2025-07-06",
+    "kind": "text",
+    "trap": ""
+  },
+  {
+    "question": "How much revenue has actually been collected, counting paid invoices only?",
+    "expect": 20103000.0,
+    "kind": "number",
+    "trap": "status casing is inconsistent"
+  }
+]
