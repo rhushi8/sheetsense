@@ -1,29 +1,4 @@
-"""The eval harness. This is the part worth showing.
-
-Twenty questions whose answers are computed from the source data rather than
-typed by hand (see messy.py). Each one is something you would actually ask
-about a sales register, and most carry a trap: a TOTAL row that double-counts,
-duplicate invoices, rupee amounts stored as text, three spellings of one
-category.
-
-What gets measured:
-
-  accuracy         did it get the right number
-  first-try        right without the error being fed back, so the prompt's
-                   quality without the retry flattering it
-  self-repaired    broken code the agent fixed itself
-  never ran        failed twice; the honest failures
-  latency          what a user waits, per question
-
-Run it before and after a prompt change. A number that moved is a result.
-"It seems better" is not.
-
-`--raw` is the control: same twenty questions, untouched spreadsheet. A score
-on its own says nothing. The gap between the two runs is the whole argument
-for cleaning in code first.
-
-Run:  py -3.12 evals.py [n] [--raw]   (n = first n questions, for a smoke test)
-"""
+"""Eval harness. --raw runs the same questions on the uncleaned sheet as the control."""
 
 import json
 import os
@@ -41,13 +16,12 @@ import sheet
 
 ROOT = Path(__file__).parent
 
-REL_TOL = 0.005   # 0.5%, absorbs rounding but not a wrong filter
+REL_TOL = 0.005  # 0.5%, rounding only
 ABS_TOL = 0.01
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 def to_number(value):
-    """Pull a single number out of whatever the agent handed back."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
@@ -69,8 +43,7 @@ def matches(got, expect, kind):
         if number is None:
             return False
         return abs(number - expect) <= max(abs(expect) * REL_TOL, ABS_TOL)
-    # Text is compared loosely on purpose. A model that returns the whole
-    # ranked Series instead of the winning label still knew the answer.
+    # Loose on purpose: a ranked Series still knew the answer.
     return str(expect).strip().casefold() in str(got).strip().casefold()
 
 
@@ -100,8 +73,7 @@ def main():
         golden = golden[:int(limits[0])]
 
     if raw_mode:
-        # The control: exactly what `pd.read_excel(path)` gives you, which is
-        # what the agent would face if we left it to cope with the mess.
+        # The control: raw read_excel, no cleaning.
         df, report = pd.read_excel(messy.SHEET), []
         print(f"RAW (no cleaning): {len(df)} rows, {len(golden)} questions\n")
     else:

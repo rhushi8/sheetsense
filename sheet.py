@@ -1,33 +1,20 @@
-"""Clean a messy sheet before anything else touches it.
-
-Header hunting, currency text, casing, duplicate rows and the TOTAL footer
-each have one right answer, so they happen here in pandas instead of being
-left to the model. The model only sees a frame that is already correct.
-
-load() also returns a list of what it changed, which the UI prints. Editing
-someone's numbers without telling them is not on.
-"""
-
 import re
 import warnings
 
 import pandas as pd
 
-# Indian sheets usually write "Rs. 1,250.00" rather than "₹1250", so the
-# letters have to go too. "%" is here because a GST column of "18%" is a
-# number column that kept its unit in the cell.
+# Also strips "Rs." and "%" (GST columns like "18%").
 CURRENCY_CHARS = re.compile(r"(?i)(\brs\.?|\binr\b|[₹$€£,%\s])")
 TOTAL_WORDS = re.compile(r"\b(total|subtotal|grand\s+total|sum)\b", re.IGNORECASE)
 NULL_TEXT = {"", "nan", "none", "null", "-", "na", "n/a"}
 
-MAX_HEADER_SCAN = 15      # how far down to look for the header row
-MIN_ROW_FILL = 0.5        # below this, a row is a footer or separator
-FOOTER_FILL = 0.7         # only sparse rows get checked for TOTAL
-PARSE_THRESHOLD = 0.8     # how much of a column must parse before converting
+MAX_HEADER_SCAN = 15  # rows scanned for the header
+MIN_ROW_FILL = 0.5  # sparser rows are footers or separators
+FOOTER_FILL = 0.7  # only sparse rows get the TOTAL check
+PARSE_THRESHOLD = 0.8  # share that must parse to convert
 
 
 def _text(series):
-    """Series as stripped strings, with blanks of any kind as NA."""
     txt = series.astype(str).str.strip()
     return txt.mask(txt.str.lower().isin(NULL_TEXT))
 
@@ -45,15 +32,7 @@ def _all_blank(series):
 
 
 def find_header_row(raw):
-    """Find the row holding the column names.
-
-    A header row is mostly filled, mostly words, and has no repeats. Data rows
-    fail at least one of those, so score all three and take the best row.
-    Scoring rather than pattern matching means an odd sheet still works.
-
-    ponytail: heuristic over the first 15 rows. If a real sheet fools it, add a
-    `header_row=` argument instead of a fourth rule.
-    """
+    """Heuristic over the first 15 rows: mostly filled, mostly words, no repeats."""
     best_row, best_score = 0, -1.0
     for i in range(min(MAX_HEADER_SCAN, len(raw))):
         cells = [c for c in _text(raw.iloc[i]).dropna()]
@@ -90,9 +69,7 @@ def _to_datetime(series):
     present = values.notna().sum()
     if not present:
         return None
-    # "mixed" handles 2026-01-05 and 05-Jan-2026 in the same column. Older
-    # pandas lacks it, hence the fallback. Probing a text column is meant to
-    # fail, so pandas' "could not infer format" warning is just noise.
+    # "mixed" needs newer pandas, hence the fallback. Probe warnings are noise.
     for kwargs in ({"format": "mixed"}, {}):
         try:
             with warnings.catch_warnings():
@@ -106,21 +83,12 @@ def _to_datetime(series):
 
 
 def _canonical(spellings):
-    """Pick the spelling to keep. Commonest wins, ties go to Title Case.
-
-    Grouping works with any consistent spelling, so the tie-break only exists
-    so the output reads as 'Hardware' instead of 'HARDWARE'.
-    """
     counts = spellings.value_counts()
     tied = counts[counts == counts.max()].index
     return min(tied, key=lambda v: (not v.istitle(), v))
 
 
 def _normalize_case(series):
-    """Fold 'Hardware' / 'hardware' / '  HARDWARE  ' into one spelling.
-
-    Without it, one category becomes three groups and every group-by is wrong.
-    """
     values = _text(series)
     folded = values.str.casefold()
     if folded.nunique() == values.nunique():
@@ -131,8 +99,6 @@ def _normalize_case(series):
 
 
 def load(path):
-    """Read a messy sheet. Returns (clean frame, list of what changed)."""
-    # Takes a path or an open upload, so the UI needs no temp file.
     name = getattr(path, "name", str(path)).lower()
     reader = pd.read_csv if name.endswith((".csv", ".txt")) else pd.read_excel
     raw = reader(path, header=None, dtype=object)
@@ -146,17 +112,13 @@ def load(path):
     body = raw.iloc[header_row + 1:].reset_index(drop=True)
     body.columns = range(body.shape[1])
 
-    # Work by position until the names are settled. Blank and duplicate header
-    # cells are both common, and duplicate names are painful to index by.
     keep = [i for i in range(body.shape[1]) if not _all_blank(body[i])]
     if len(keep) < body.shape[1]:
         report.append(f"dropped {body.shape[1] - len(keep)} empty column(s)")
     body = body[keep]
     body.columns = _dedupe_names([headers[i] or f"Column {i + 1}" for i in keep])
 
-    # Two exports stacked into one sheet leave the header sitting in the data.
-    # That row is completely filled, so the sparse and TOTAL rules below both
-    # miss it, and it turns its whole column back into text.
+    # Stacked exports leave a repeat header row in the data.
     header_key = tuple(str(c).strip().casefold() for c in body.columns)
     repeated = body.apply(
         lambda r: tuple("" if pd.isna(v) else str(v).strip().casefold()
@@ -173,9 +135,7 @@ def load(path):
     if blanks:
         report.append(f"dropped {blanks} blank row(s)")
 
-    # A mostly empty row is a separator, note or summary, never a record. The
-    # TOTAL check only looks at sparse rows, so a customer actually called
-    # "Total Systems" is safe.
+    # TOTAL check is sparse rows only, so a customer called "Total Systems" is safe.
     footers = body[(fill_ratio > 0) & (fill_ratio < MIN_ROW_FILL)]
     sparse_total = body[(fill_ratio < FOOTER_FILL) & body.apply(
         lambda r: bool(TOTAL_WORDS.search(" ".join(_text(r).dropna()))), axis=1)]
@@ -191,8 +151,7 @@ def load(path):
 
     numbered, dated, cased = [], [], []
     for col in df.columns:
-        # Numbers first. A column of plain integers would otherwise parse as
-        # epoch timestamps and come back as 1970.
+        # Numbers first, or plain ints parse as 1970 epoch dates.
         as_number = _to_number(df[col])
         if as_number is not None:
             df[col] = as_number
@@ -224,11 +183,7 @@ def load(path):
 
 
 def profile(df, report):
-    """Describe the frame for the model: columns and types, never the rows.
-
-    Keeps the prompt small, and keeps a real client's records out of someone
-    else's logs.
-    """
+    """Columns and types only, never rows. Keeps client data out of prompts."""
     lines = [f"{len(df)} rows x {len(df.columns)} columns", "", "Columns:"]
 
     for col in df.columns:
@@ -243,8 +198,6 @@ def profile(df, report):
             sample = ""
         else:
             values = [str(v) for v in pd.Series(s.dropna().unique())]
-            # Short lists go in full. We keep the sheet's own spelling, so a
-            # filter written against a guessed one would match nothing.
             if len(values) <= 12:
                 kind = f"text, all {len(values)} values: " + ", ".join(map(repr, sorted(values)))
                 sample = ""
@@ -260,7 +213,6 @@ def profile(df, report):
 
 
 def demo():
-    """Check every repair actually happened, against the generated sheet."""
     from messy import N_MISSING_QTY, N_ROWS, SHEET
 
     df, report = load(SHEET)
@@ -271,11 +223,7 @@ def demo():
                                 "Qty", "Unit Price", "Amount", "Status", "Sales Rep"], df.columns
     assert pd.api.types.is_datetime64_any_dtype(df["Date"])
     assert pd.api.types.is_numeric_dtype(df["Amount"])
-    # No real invoice comes near half the register, but the TOTAL row is the
-    # whole register, so it would fail this loudly.
     assert df["Amount"].max() < df["Amount"].sum() / 2, "the TOTAL row survived into the data"
-    # Four categories, not twelve. Which spelling won doesn't matter; we keep
-    # the sheet's commonest rather than inventing one, so IBM never becomes Ibm.
     assert {c.casefold() for c in df["Category"]} == {"hardware", "software",
                                                      "services", "consumables"}
     assert {s.casefold() for s in df["Status"]} == {"paid", "pending", "unpaid"}

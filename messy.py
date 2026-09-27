@@ -1,21 +1,4 @@
-"""Build the messy sample workbook and the eval ground truth in one pass.
-
-Data and expected answers can't be allowed to drift, so one script makes both.
-The clean frame here is the definition of correct, every golden answer is
-computed from it, and then the same rows get uglified on the way into Excel.
-Change the generator and all twenty answers follow.
-
-The mess comes from real Indian small-business registers: title rows above the
-header, rupee amounts stored as text, a blank spacer column, inconsistent
-casing, separator rows, a few double-entered invoices, and a TOTAL line that
-doubles every figure if you sum the column without thinking.
-
-Dates are messy but never ambiguous (ISO and 05-Jan-2026, never 05/01/2026).
-An ambiguous date has no ground truth, and a golden set you can't defend is
-worse than none.
-
-Run once:  py -3.12 messy.py
-"""
+"""Builds the messy workbook and its answers together so they can't drift."""
 
 import json
 from pathlib import Path
@@ -51,7 +34,6 @@ BLANK_COL = HEADER.index("")
 
 
 def build_clean(rng):
-    """What the register would look like if someone had kept it properly."""
     start = pd.Timestamp("2025-07-01")
     qty = rng.integers(1, 41, N_ROWS).astype(float)
     price = rng.choice([500, 1200, 2500, 4800, 7500, 12000, 18000, 25000], N_ROWS).astype(float)
@@ -69,9 +51,7 @@ def build_clean(rng):
         "Sales Rep": rng.choice(REPS, N_ROWS),
     })
 
-    # A few rows lose their quantity, the way a hurried entry does. The invoice
-    # still went out, so Amount survives, which is why Amount and never
-    # Qty * Unit Price is the revenue source of truth here.
+    # Some rows lose Qty, so Amount is the revenue source of truth.
     df.loc[rng.choice(N_ROWS, N_MISSING_QTY, replace=False), "Qty"] = np.nan
     return df
 
@@ -79,17 +59,14 @@ def build_clean(rng):
 def _messy_row(row, i, rng):
     cells = [""] * N_COLS
 
-    # Two unambiguous date formats, alternating.
     cells[0] = row.Date.strftime("%Y-%m-%d") if i % 2 else row.Date.strftime("%d-%b-%Y")
     cells[1] = str(row["Invoice No"])
     cells[2] = str(row["Customer"])
     cells[3] = str(row["City"])
-    # cells[BLANK_COL] stays empty: the spacer column nobody ever deleted.
     category = str(row["Category"])
     cells[5] = str(rng.choice([category, category.lower(), f"  {category.upper()}  "]))
     cells[6] = "" if pd.isna(row["Qty"]) else int(row["Qty"])
     cells[7] = float(row["Unit Price"])
-    # Most amounts were typed as text with a rupee sign; some were left numeric.
     amount = float(row["Amount"])
     cells[8] = f"₹ {amount:,.2f}" if rng.random() < 0.7 else amount
     status = str(row["Status"])
@@ -108,7 +85,6 @@ def messify(clean, rng):
 
     body = [_messy_row(row, i, rng) for i, (_, row) in enumerate(clean.iterrows())]
 
-    # Double-entered invoices: the same line keyed twice, a day apart in practice.
     for idx in rng.choice(len(body), N_DUPES, replace=False):
         body.insert(int(idx), list(body[int(idx)]))
 
@@ -126,7 +102,6 @@ def messify(clean, rng):
 
 
 def build_golden(clean):
-    """Twenty questions whose answers are computed, never typed by hand."""
     by_city = clean.groupby("City").Amount.sum()
     by_cat = clean.groupby("Category").Amount.sum()
     by_rep = clean.groupby("Sales Rep").Amount.sum()

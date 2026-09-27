@@ -1,14 +1,4 @@
-"""Check and run model-written pandas. This is the trust boundary.
-
-Whatever the model returns is untrusted text that is about to be exec'd, so
-this decides what may run before any of it does. Validation walks the AST
-instead of matching a regex, because `"__imp" + "ort__"` beats a regex and
-does not beat a parse tree.
-
-Allowlist for names, denylist for the pandas methods that touch disk. If a
-check here is wrong the cost is someone's filesystem, so this file gets the
-paranoid treatment the rest of the repo doesn't need.
-"""
+"""Trust boundary: model-written code is validated here before it runs."""
 
 import ast
 import warnings
@@ -16,25 +6,20 @@ import warnings
 import numpy as np
 import pandas as pd
 
-# Callables that would get code out of the sandbox.
 DENY_CALLS = {
     "eval", "exec", "compile", "open", "input", "__import__", "globals",
     "locals", "vars", "getattr", "setattr", "delattr", "breakpoint",
     "exit", "quit", "help", "memoryview", "id", "object",
 }
 
-# pandas/numpy methods that write to disk or shell out. Reading is covered by
-# the `read_` prefix rule below. The frame is already loaded, so nothing here
-# needs to open a file.
+# Writes to disk or shells out. read_* is blocked by prefix below.
 DENY_ATTRS = {
     "to_csv", "to_excel", "to_json", "to_pickle", "to_sql", "to_parquet",
     "to_feather", "to_hdf", "to_clipboard", "to_stata", "to_gbq",
     "eval", "query", "system", "popen", "save", "savez", "tofile", "load",
 }
 
-# Modules that would let code leave the process. Everything else is allowed:
-# pandas and numpy lazily import a long tail of helpers, and an allowlist
-# turns every new pandas method into a mystery failure.
+# Denylist, not allowlist: pandas lazily imports a long tail of helpers.
 DENY_IMPORTS = {
     "os", "sys", "subprocess", "shutil", "socket", "pathlib", "importlib",
     "builtins", "ctypes", "pickle", "requests", "urllib", "http", "glob",
@@ -48,14 +33,7 @@ def _guarded_import(name, *args, **kwargs):
     return __import__(name, *args, **kwargs)
 
 
-# Deliberately small. Anything missing here is unavailable to generated code.
-#
-# `__import__` is the exception and it is not the hole it looks like. A C-level
-# lazy import inside pandas looks up `__import__` in the calling frame's
-# builtins, which is this dict, so without it Timestamp.strftime raises
-# KeyError. Generated source still can't reach it: validate() rejects any name
-# starting with an underscore, and getattr and friends are denied outright.
-# The guard above is the second lock, for imports below the Python layer.
+# __import__ stays for pandas' C-level lazy imports. validate() still blocks underscore names.
 SAFE_BUILTINS = {
     "abs": abs, "min": min, "max": max, "sum": sum, "len": len,
     "round": round, "sorted": sorted, "list": list, "dict": dict,
@@ -67,11 +45,10 @@ SAFE_BUILTINS = {
 
 
 class UnsafeCode(ValueError):
-    """Generated code failed validation and was never executed."""
+    pass
 
 
 def validate(code):
-    """Raise UnsafeCode unless every node in the tree is permitted."""
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SyntaxWarning)
@@ -85,10 +62,8 @@ def validate(code):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             raise UnsafeCode("imports are not allowed")
 
-        # A while loop is the one easy way for one-shot analysis to hang.
-        # Comprehensions and vectorised pandas cover every real case.
-        # ponytail: `for` is still allowed, so a huge literal range could spin.
-        # Add a wall-clock kill if this ever runs somewhere you can't close.
+        # No while loops, the easy way to hang.
+        # ponytail: `for` over a huge range can still spin. Add a wall-clock kill if needed.
         if isinstance(node, ast.While):
             raise UnsafeCode("while loops are not allowed")
 
@@ -113,11 +88,7 @@ def validate(code):
 
 
 def run(code, df):
-    """Validate, then run against a copy of the frame. Returns `result`.
-
-    The copy matters. Generated code can mutate what it is given, and the
-    caller's frame has to survive a bad answer for the next question.
-    """
+    """Runs on a copy so bad code can't mutate the caller's frame."""
     validate(code)
 
     scope = {
@@ -126,8 +97,7 @@ def run(code, df):
         "np": np,
         "df": df.copy(),
     }
-    # Models write `"\d+"` where they mean `r"\d+"` all the time. It works, and
-    # the SyntaxWarning is noise about someone else's style.
+    # Models write "\d+" for r"\d+". The SyntaxWarning is noise.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SyntaxWarning)
         exec(code, scope)  # noqa: S102 - validated above, which is this module's job
@@ -135,7 +105,6 @@ def run(code, df):
 
 
 def demo():
-    """Check the dangerous things are refused and the useful ones still run."""
     df = pd.DataFrame({"city": ["Mumbai", "Pune", "Mumbai"], "amt": [10.0, 5.0, 7.0]})
 
     attacks = [
@@ -147,7 +116,7 @@ def demo():
         "result = pd.read_csv('/etc/passwd')",
         "while True:\n    pass\nresult = 1",
         "result = eval('1+1')",
-        "df.sum()",  # never assigns `result`
+        "df.sum()",
     ]
     for bad in attacks:
         try:
@@ -161,11 +130,9 @@ def demo():
     assert run("result = df.groupby('city')['amt'].sum().idxmax()", df) == "Mumbai"
     assert run("result = round(df['amt'].mean(), 2)", df) == 7.33
 
-    # Regression: strftime lazily imports at C level, which needs __import__ in
-    # this frame's builtins. Locking builtins down too hard broke it.
+    # Regression: strftime needs __import__ in builtins.
     assert run("result = pd.Timestamp('2026-01-05').strftime('%Y-%m-%d')", df) == "2026-01-05"
 
-    # The modules that matter are still refused, even below the Python layer.
     try:
         _guarded_import("os")
     except UnsafeCode:
@@ -173,7 +140,6 @@ def demo():
     else:
         raise AssertionError("guarded import let `os` through")
 
-    # Code that mutates its copy leaves the caller's frame alone.
     run("df['amt'] = 0\nresult = df['amt'].sum()", df)
     assert df["amt"].sum() == 22.0
 

@@ -1,12 +1,3 @@
-"""Streamlit demo: upload an ugly spreadsheet, ask it something in English.
-
-Thin on purpose. The cleaning lives in sheet.py and the proof that it matters
-lives in evals.py. This is here so someone can watch it work without reading
-either of them.
-
-Run:  streamlit run app.py
-"""
-
 import json
 import os
 from pathlib import Path
@@ -29,17 +20,13 @@ EXAMPLES = [
     "How much revenue has actually been collected, counting paid invoices only?",
 ]
 
-# Explicit path, not cwd-relative, since streamlit often starts elsewhere.
+# Explicit path, streamlit often starts elsewhere.
 load_dotenv(ROOT / ".env")
 st.set_page_config(page_title="SheetSense", page_icon="📊", layout="wide",
                    initial_sidebar_state="expanded")
 
 
 def pretty(value):
-    """Format the answer the way a person writes it, not the way numpy repr's it.
-
-    `np.float64(8428500.0)` is the right answer and still looks like a bug.
-    """
     if isinstance(value, tuple):
         return ", ".join(pretty(v) for v in value)
     if hasattr(value, "item") and getattr(value, "size", 1) == 1:
@@ -49,7 +36,6 @@ def pretty(value):
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, float):
-        # Trailing zeros stop at the decimal point, so 8,428,500.00 -> 8,428,500
         return f"{value:,.2f}".rstrip("0").rstrip(".")
     if isinstance(value, int):
         return f"{value:,}"
@@ -57,7 +43,6 @@ def pretty(value):
 
 
 def scoreboard():
-    """Put the eval numbers in the sidebar, next to the thing they describe."""
     runs = [("cleaned", ROOT / "results.json"), ("raw sheet", ROOT / "results_raw.json")]
     available = [(label, json.loads(p.read_text(encoding="utf-8"))["summary"])
                  for label, p in runs if p.exists()]
