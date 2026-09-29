@@ -30,7 +30,6 @@ STATUSES = ["Paid"] * 60 + ["Pending"] * 25 + ["Unpaid"] * 15
 HEADER = ["Date", "Invoice No", "Customer", "City", "", "Category",
           "Qty", "Unit Price", "Amount", "Status", "Sales Rep"]
 N_COLS = len(HEADER)
-BLANK_COL = HEADER.index("")
 
 
 def build_clean(rng):

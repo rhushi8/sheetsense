@@ -62,13 +62,13 @@ def main():
         return 1
 
     if not messy.SHEET.exists():
-        print(f"No sample sheet yet. Run:  py -3.12 messy.py")
+        print("No sample sheet yet. Run:  py -3.12 messy.py")
         return 1
 
     raw_mode = "--raw" in sys.argv
     limits = [a for a in sys.argv[1:] if a.isdigit()]
 
-    golden = json.loads((ROOT / "golden.json").read_text(encoding="utf-8"))
+    golden = json.loads(messy.GOLDEN.read_text(encoding="utf-8"))
     if limits:
         golden = golden[:int(limits[0])]
 
